@@ -1,0 +1,5 @@
+id,name,department,salary
+1,Alice,IT,55000
+2,Ben,HR,
+3,Cara,,62000
+4,Dev,Finance,45000
