@@ -1,0 +1,12 @@
+valid_statuses:
+  - Active
+  - Inactive
+  - Pending
+
+salary_range:
+  min: 0
+  max: 1000000
+
+thresholds:
+  null_warning_pct: 5
+  null_fail_pct: 20
