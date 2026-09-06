@@ -52,8 +52,6 @@ def check_completeness_all(df, max_null_pct=0):
     return [check_completeness(df, c, max_null_pct) for c in df.columns]
 
 
-
-
 def check_uniqueness(df, column_name):
     """
     Check whether a column contains duplicate values.
@@ -121,3 +119,49 @@ def check_uniqueness_composite(df, columns):
         "duplicate_count": duplicate_count,
         "passed": duplicate_count == 0,
     }
+
+def check_referential_integrity(child_df, child_key, parent_df, parent_key):
+    """
+    Check whether every value in child_df's foreign key column exists
+    in parent_df's corresponding key column.
+
+    Args:
+        child_df: the DataFrame with the foreign key (e.g. orders).
+        child_key: the foreign key column name in child_df.
+        parent_df: the DataFrame that should contain all valid keys (e.g. customers).
+        parent_key: the key column name in parent_df.
+
+    Returns:
+        A dict with check name, total child rows, orphan count, and
+        whether the relationship is fully intact.
+    """
+    total = child_df.count()
+    joined = child_df.join(
+        parent_df.select(parent_key).distinct(),
+        child_df[child_key] == parent_df[parent_key],
+        "left"
+    )
+    orphans = joined.filter(parent_df[parent_key].isNull()).count()
+    return {
+        "check": "referential_integrity",
+        "child_key": child_key,
+        "total_rows": total,
+        "orphan_count": orphans,
+        "passed": orphans == 0,
+    }
+
+
+def get_orphaned_rows(child_df, child_key, parent_df, parent_key):
+    """
+    Return the actual orphaned rows from child_df - rows whose foreign
+    key doesn't exist anywhere in parent_df.
+
+    Note: unlike check_referential_integrity(), this returns a
+    DataFrame, not a dict - for investigation, not summarizing.
+    """
+    joined = child_df.join(
+        parent_df.select(parent_key).distinct(),
+        child_df[child_key] == parent_df[parent_key],
+        "left"
+    )
+    return joined.filter(parent_df[parent_key].isNull())
