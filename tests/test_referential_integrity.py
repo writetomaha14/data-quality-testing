@@ -1,3 +1,21 @@
+"""
+Referential Integrity Test Suite
+
+This module tests the referential integrity checking functions from dq_checks module.
+Verifies that orphaned records (child records without matching parent records) are 
+correctly detected and reported.
+
+Test Coverage:
+- Detection of orphaned records in child tables
+- Validation of clean relationships (no orphans)
+- Consistency between check and get functions
+- Null foreign key handling behavior
+
+Test Data:
+- customers.csv: Parent table with customer records
+- orders.csv: Child table with order records (includes orphaned orders)
+"""
+
 # Import required libraries
 import sys
 import logging
@@ -8,10 +26,18 @@ sys.path.append('/Workspace/Repos/maha.b.lakshmi@gmail.com/data-quality-testing/
 from dq_checks import check_referential_integrity,  get_orphaned_rows
 
 
+# ==============================================================================
+# Test Configuration
+# ==============================================================================
+
 base_path = "/Workspace/Repos/maha.b.lakshmi@gmail.com/data-quality-testing/tests/test_data"
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+
+# ==============================================================================
+# Test Data Loading Functions
+# ==============================================================================
 
 # Load customers test data from CSV
 def load_customers():
@@ -22,6 +48,10 @@ def load_customers():
 def load_orders():
     spark = SparkSession.builder.getOrCreate()
     return spark.read.option("header", True).option("inferSchema", True).csv(f"{base_path}/orders.csv")
+
+# ==============================================================================
+# Test Cases
+# ==============================================================================
 
 def test_referential_integrity_finds_orphan():
     """Verify function detects orphaned records when they exist"""
@@ -77,6 +107,10 @@ def test_null_foreign_key_documented_behavior():
     # Documenting the real, current behavior: a null FK IS counted as an orphan
     assert result["orphan_count"] == 1, "Null foreign key should be counted as orphan"
     assert result["passed"] == False, "Check should fail when null FK exists"
+
+# ==============================================================================
+# Test Runner
+# ==============================================================================
 
 if __name__ == "__main__":
     import pytest

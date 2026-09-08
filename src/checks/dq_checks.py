@@ -165,3 +165,54 @@ def get_orphaned_rows(child_df, child_key, parent_df, parent_key):
         "left"
     )
     return joined.filter(parent_df[parent_key].isNull())
+
+def check_all_foreign_keys(table_registry, fk_config):
+    """
+    Run the appropriate referential integrity check for every relationship
+    declared in fk_config, using DataFrames looked up from table_registry.
+    Supports both single-column and composite (multi-column) foreign keys,
+    based on each entry's 'composite' flag.
+    """
+    results = []
+    for fk in fk_config:
+        child_df = table_registry[fk["child_table"]]
+        parent_df = table_registry[fk["parent_table"]]
+
+        if fk.get("composite", False):
+            result = check_referential_integrity_composite(
+                child_df, fk["child_key"], parent_df, fk["parent_key"]
+            )
+        else:
+            result = check_referential_integrity(
+                child_df, fk["child_key"], parent_df, fk["parent_key"]
+            )
+
+        result["child_table"] = fk["child_table"]
+        result["parent_table"] = fk["parent_table"]
+        results.append(result)
+    return results
+
+def check_referential_integrity_composite(child_df, child_keys, parent_df, parent_keys):
+    """
+    Check referential integrity across a combination of columns.
+
+    Args:
+        child_df: the DataFrame with the composite foreign key.
+        child_keys: a list of column names forming the foreign key.
+        parent_df: the DataFrame that should contain all valid key combinations.
+        parent_keys: the matching list of column names in parent_df.
+
+    Returns:
+        A dict in the same shape as check_referential_integrity().
+    """
+    total = child_df.count()
+    join_condition = [child_df[c] == parent_df[p] for c, p in zip(child_keys, parent_keys)]
+    joined = child_df.join(parent_df.select(*parent_keys).distinct(), join_condition, "left")
+    orphans = joined.filter(parent_df[parent_keys[0]].isNull()).count()
+    return {
+        "check": "referential_integrity_composite",
+        "child_key": " + ".join(child_keys),
+        "total_rows": total,
+        "orphan_count": orphans,
+        "passed": orphans == 0,
+    }

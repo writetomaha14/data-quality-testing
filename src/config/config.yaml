@@ -10,3 +10,16 @@ salary_range:
 thresholds:
   null_warning_pct: 5
   null_fail_pct: 20
+
+foreign_keys:
+  - child_table: orders
+    child_key: customer_id
+    parent_table: customers
+    parent_key: customer_id
+    composite: false
+
+  - child_table: order_line_items
+    child_key: [order_id, product_id]
+    parent_table: order_products
+    parent_key: [order_id, product_id]
+    composite: true

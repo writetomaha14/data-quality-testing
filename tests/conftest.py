@@ -1,0 +1,143 @@
+"""
+Shared Pytest Fixtures for Data Quality Testing Framework
+
+Fixtures for all test files in this directory.
+"""
+
+import sys
+import logging
+from pathlib import Path
+from typing import Dict
+
+import pytest
+import yaml
+from pyspark.sql import SparkSession, DataFrame
+
+
+# ==============================================================================
+# Path Configuration
+# ==============================================================================
+
+TEST_DIR = Path(__file__).parent.resolve()
+PROJECT_ROOT = TEST_DIR.parent
+TEST_DATA_DIR = TEST_DIR / "test_data"
+CONFIG_DIR = PROJECT_ROOT / "src" / "config"
+CHECKS_DIR = PROJECT_ROOT / "src" / "checks"
+
+# Add checks module to path
+sys.path.insert(0, str(CHECKS_DIR))
+
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+)
+logger = logging.getLogger(__name__)
+
+
+# ==============================================================================
+# Shared Fixtures
+# ==============================================================================
+
+@pytest.fixture(scope="session")
+def spark_session():
+    """
+    Get or create a SparkSession for tests.
+    
+    Tries multiple approaches to get a Spark session in this order:
+    1. Access Databricks global spark object
+    2. Get active session
+    3. Create new session (for local testing only)
+    """
+    logger.info("=" * 70)
+    logger.info("Getting SparkSession for test suite")
+    logger.info("=" * 70)
+    
+    spark = None
+    
+    # Try 1: Get from Databricks globals (when running in notebook context)
+    try:
+        import builtins
+        if hasattr(builtins, 'spark'):
+            spark = builtins.spark
+            logger.info("Using Databricks global spark session")
+    except Exception as e:
+        logger.debug(f"Could not access global spark: {e}")
+    
+    # Try 2: Get active session (when one exists)
+    if spark is None:
+        spark = SparkSession.getActiveSession()
+        if spark is not None:
+            logger.info("Using active SparkSession")
+    
+    # Try 3: Use Remote Spark (Databricks serverless)
+    if spark is None:
+        try:
+            from pyspark.sql.connect.session import SparkSession as RemoteSparkSession
+            # On Databricks serverless, spark is available via remote connection
+            spark = RemoteSparkSession.builder.remote("local").getOrCreate()
+            logger.info("Created Databricks Remote SparkSession")
+        except Exception as e:
+            logger.debug(f"Could not create remote session: {e}")
+    
+    if spark is None:
+        raise RuntimeError(
+            "Could not obtain a SparkSession. "
+            "Tests must be run in a Databricks environment with Spark available."
+        )
+    
+    logger.info(f"Spark version: {spark.version}")
+    
+    return spark
+
+
+@pytest.fixture(scope="module")
+def test_data(spark_session: SparkSession) -> Dict[str, DataFrame]:
+    """Load all test data CSV files."""
+    logger.info("-" * 70)
+    logger.info(f"Loading test data from {TEST_DATA_DIR}")
+    logger.info("-" * 70)
+    
+    def load_csv(filename: str) -> DataFrame:
+        file_path = TEST_DATA_DIR / filename
+        logger.debug(f"Loading {file_path}")
+        return spark_session.read \
+            .option("header", True) \
+            .option("inferSchema", True) \
+            .csv(str(file_path))
+    
+    data = {
+        "customers": load_csv("customers.csv"),
+        "orders": load_csv("orders_fk.csv"),
+        "order_line_items": load_csv("order_line_items.csv"),
+        "order_products": load_csv("order_products.csv"),
+    }
+    
+    logger.info("Test data loaded:")
+    for table_name, df in data.items():
+        row_count = df.count()
+        logger.info(f"  {table_name}: {row_count} rows")
+    logger.info("-" * 70)
+    
+    return data
+
+
+@pytest.fixture(scope="module")
+def fk_config() -> Dict:
+    """Load foreign key configuration from YAML."""
+    config_path = CONFIG_DIR / "config.yaml"
+    logger.info(f"Loading FK configuration from {config_path}")
+    
+    with open(config_path, 'r') as f:
+        config = yaml.safe_load(f)
+    
+    fk_count = len(config.get('foreign_keys', []))
+    logger.info(f"  Loaded {fk_count} FK relationships from config")
+    
+    return config
+
+
+@pytest.fixture
+def table_registry(test_data: Dict[str, DataFrame]) -> Dict[str, DataFrame]:
+    """Provide a fresh table registry for each test."""
+    return test_data.copy()
