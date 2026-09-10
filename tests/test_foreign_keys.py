@@ -1,3 +1,4 @@
+
 """
 Test Suite for Foreign Key Integrity Checks
 
@@ -10,7 +11,9 @@ Fixtures:
 
 Tests:
     - test_orders_to_customers_fk: Simple FK relationship
-    - test_line_items_to_products_composite_fk: Composite FK relationship  
+    - test_line_items_to_products_composite_fk: Composite FK relationship
+    - test_employees_self_referencing_fk: Self-referencing FK (employee->manager)
+    - test_departments_composite_self_referencing_fk: Composite + self-referencing FK
     - test_check_all_foreign_keys_integration: Integration test for all FKs
     - test_no_orphans_in_valid_data: Negative test with valid data
 
@@ -138,6 +141,81 @@ def test_line_items_to_products_composite_fk(table_registry: Dict[str, DataFrame
     assert orphan_count == 1, (
         f"Expected 1 orphaned line item (invalid order_id+product_id), found {orphan_count}. "
         "Check order_line_items.csv test data."
+    )
+    assert not result["passed"], "FK check should fail when orphans exist"
+
+
+def test_employees_self_referencing_fk(table_registry: Dict[str, DataFrame]):
+    """
+    Test self-referencing foreign key: employees.manager_id -> employees.employee_id
+    
+    This test validates that employees referencing non-existent managers are
+    correctly identified as orphaned records. This is a common pattern for
+    organizational hierarchies, category trees, etc.
+    
+    Expected Behavior (based on test data):
+        - employees_hierarchy.csv contains 1 employee with invalid manager_id
+        - The check should identify exactly 1 orphan
+    """
+    logger.info("Testing self-referencing FK: employees -> employees (manager)")
+    
+    employees_df = table_registry["employees"]
+    
+    # Run self-referencing FK check
+    # Employee references manager in the SAME table
+    result = check_referential_integrity(
+        child_df=employees_df,
+        parent_df=employees_df,  # Same table!
+        child_key="manager_id",
+        parent_key="employee_id"
+    )
+    
+    # Validate results
+    orphan_count = result["orphan_count"]
+    logger.info(f"  Found {orphan_count} employees with invalid manager_id")
+    
+    # Business expectation: Exactly 1 orphaned employee (Eve with manager 888)
+    assert orphan_count == 1, (
+        f"Expected 1 employee with invalid manager_id, found {orphan_count}. "
+        "Check employees_hierarchy.csv test data."
+    )
+    assert not result["passed"], "FK check should fail when orphans exist"
+
+
+def test_departments_composite_self_referencing_fk(table_registry: Dict[str, DataFrame]):
+    """
+    Test composite + self-referencing FK:
+    departments.(parent_org_id, parent_dept_id) -> departments.(org_id, dept_id)
+    
+    This test validates complex hierarchies where multiple columns are needed
+    to identify both the child and parent records within the SAME table.
+    Common in multi-tenant systems, partitioned hierarchies, etc.
+    
+    Expected Behavior (based on test data):
+        - departments_hierarchy.csv contains 1 dept with invalid parent reference
+        - The check should identify exactly 1 orphan
+    """
+    logger.info("Testing composite + self-referencing FK: departments -> departments (parent)")
+    
+    departments_df = table_registry["departments"]
+    
+    # Run composite self-referencing FK check
+    # Department references parent department in the SAME table using composite key
+    result = check_referential_integrity_composite(
+        child_df=departments_df,
+        parent_df=departments_df,  # Same table!
+        child_keys=["parent_org_id", "parent_dept_id"],
+        parent_keys=["org_id", "dept_id"]
+    )
+    
+    # Validate results
+    orphan_count = result["orphan_count"]
+    logger.info(f"  Found {orphan_count} departments with invalid parent reference")
+    
+    # Business expectation: Exactly 1 orphaned department (HR with parent org 999, dept 999)
+    assert orphan_count == 1, (
+        f"Expected 1 department with invalid parent reference, found {orphan_count}. "
+        "Check departments_hierarchy.csv test data."
     )
     assert not result["passed"], "FK check should fail when orphans exist"
 

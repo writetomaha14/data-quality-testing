@@ -111,6 +111,8 @@ def test_data(spark_session: SparkSession) -> Dict[str, DataFrame]:
         "orders": load_csv("orders_fk.csv"),
         "order_line_items": load_csv("order_line_items.csv"),
         "order_products": load_csv("order_products.csv"),
+        "employees": load_csv("employees_hierarchy.csv"),
+        "departments": load_csv("departments_hierarchy.csv"),
     }
     
     logger.info("Test data loaded:")

@@ -1,0 +1,6 @@
+employee_id,name,manager_id
+1,Alice (CEO),
+2,Bob,1.0
+3,Charlie,1.0
+4,Dave,2.0
+999,Eve (Orphan),888.0
