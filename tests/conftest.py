@@ -139,7 +139,80 @@ def fk_config() -> Dict:
     return config
 
 
+@pytest.fixture(scope="module")
+def schema_config() -> Dict:
+    """Load schema configuration from YAML."""
+    config_path = CONFIG_DIR / "config.yaml"
+    logger.info(f"Loading schema configuration from {config_path}")
+    
+    with open(config_path, 'r') as f:
+        config = yaml.safe_load(f)
+    
+    schema_count = len(config.get('expected_schemas', {}))
+    logger.info(f"  Loaded {schema_count} table schemas from config")
+    
+    return config
+
+
+@pytest.fixture(scope="module")
+def schema_test_data(spark_session: SparkSession) -> Dict[str, DataFrame]:
+    """
+    Load test data specifically for schema validation tests.
+    
+    This fixture uses separate CSV files to avoid interfering with FK tests.
+    Schema test files should follow naming convention:
+    - Base table: <table_name>.csv (e.g., employees.csv)
+    - Missing columns: <table_name>_missing_cols.csv
+    - Extra columns: <table_name>_extra_cols.csv
+    - Wrong types: <table_name>_wrong_types.csv
+    """
+    logger.info("-" * 70)
+    logger.info(f"Loading schema test data from {TEST_DATA_DIR}")
+    logger.info("-" * 70)
+    
+    def load_csv(filename: str) -> DataFrame:
+        file_path = TEST_DATA_DIR / filename
+        if not file_path.exists():
+            logger.warning(f"Schema test file not found: {file_path}")
+            return None
+        logger.debug(f"Loading {file_path}")
+        return spark_session.read \
+            .option("header", True) \
+            .option("inferSchema", True) \
+            .csv(str(file_path))
+    
+    # Load schema test data (using employees_hierarchy for now)
+    # When you create schema-specific tests, replace with employees.csv
+    data = {}
+    
+    # Load base employees table (currently using hierarchy file)
+    employees_df = load_csv("employees_hierarchy.csv")
+    if employees_df:
+        data["employees"] = employees_df
+    
+    # Load variant test files if they exist
+    for suffix in ["_missing_cols", "_extra_cols", "_wrong_types"]:
+        df = load_csv(f"employees{suffix}.csv")
+        if df:
+            data[f"employees{suffix}"] = df
+    
+    logger.info(f"Schema test data loaded: {len(data)} tables")
+    for table_name in data.keys():
+        logger.info(f"  {table_name}")
+    logger.info("-" * 70)
+    
+    return data
+
+
 @pytest.fixture
-def table_registry(test_data: Dict[str, DataFrame]) -> Dict[str, DataFrame]:
-    """Provide a fresh table registry for each test."""
-    return test_data.copy()
+def table_registry(test_data: Dict[str, DataFrame], schema_test_data: Dict[str, DataFrame]) -> Dict[str, DataFrame]:
+    """
+    Provide a unified table registry for tests.
+    
+    Combines FK test data and schema test data.
+    FK tests will use: customers, orders, order_line_items, order_products, employees, departments
+    Schema tests will use: employees (and variants like employees_missing_cols)
+    """
+    registry = test_data.copy()
+    registry.update(schema_test_data)
+    return registry

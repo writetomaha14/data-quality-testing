@@ -216,3 +216,36 @@ def check_referential_integrity_composite(child_df, child_keys, parent_df, paren
         "orphan_count": orphans,
         "passed": orphans == 0,
     }
+
+def check_schema(df, expected_schema):
+    """
+    Compare a DataFrame's actual schema against an expected one.
+
+    Args:
+        df: the PySpark DataFrame to check.
+        expected_schema: a list of (column_name, type_name) tuples,
+            e.g. [("id", "integer"), ("name", "string")].
+
+    Returns:
+        A dict with check name, missing columns, extra columns,
+        type mismatches, and whether the schema matches exactly.
+    """
+    actual_schema = [(f.name, f.dataType.typeName()) for f in df.schema.fields]
+    actual_dict = dict(actual_schema)
+    expected_dict = dict(expected_schema)
+
+    missing_columns = [c for c, _ in expected_schema if c not in actual_dict]
+    extra_columns = [c for c, _ in actual_schema if c not in expected_dict]
+    type_mismatches = [
+        (c, expected_dict[c], actual_dict[c])
+        for c in expected_dict
+        if c in actual_dict and actual_dict[c] != expected_dict[c]
+    ]
+
+    return {
+        "check": "schema_validation",
+        "missing_columns": missing_columns,
+        "extra_columns": extra_columns,
+        "type_mismatches": type_mismatches,
+        "passed": not missing_columns and not extra_columns and not type_mismatches,
+    }

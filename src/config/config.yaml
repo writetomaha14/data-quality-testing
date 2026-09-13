@@ -23,3 +23,9 @@ foreign_keys:
     parent_table: order_products
     parent_key: [order_id, product_id]
     composite: true
+
+expected_schemas:
+  employees:
+    - [employee_id, integer]
+    - [name, string]
+    - [manager_id, double]

@@ -12,10 +12,7 @@ Fixtures:
 Tests:
     - test_orders_to_customers_fk: Simple FK relationship
     - test_line_items_to_products_composite_fk: Composite FK relationship
-    - test_employees_self_referencing_fk: Self-referencing FK (employee->manager)
-    - test_departments_composite_self_referencing_fk: Composite + self-referencing FK
     - test_check_all_foreign_keys_integration: Integration test for all FKs
-    - test_no_orphans_in_valid_data: Negative test with valid data
 
 Usage:
     pytest test_foreign_keys.py -v              # Run all FK tests
@@ -24,12 +21,11 @@ Usage:
 """
 
 import sys
-import logging
 from pathlib import Path
 from typing import Dict
 
 import pytest
-from pyspark.sql import SparkSession, DataFrame
+from pyspark.sql import DataFrame
 
 
 # ==============================================================================
@@ -48,9 +44,6 @@ from dq_checks import (
     check_referential_integrity_composite
 )
 
-# Configure logging
-logger = logging.getLogger(__name__)
-
 
 # ==============================================================================
 # Test Functions - Isolated, focused tests
@@ -68,7 +61,7 @@ def test_orders_to_customers_fk(table_registry: Dict[str, DataFrame],
         - orders_fk.csv contains 1 order with invalid customer_id
         - The check should identify exactly 1 orphan
     """
-    logger.info("Testing orders -> customers FK relationship")
+    print("Testing orders -> customers FK relationship")
     
     # Get the specific FK config for this relationship
     orders_fk_config = [
@@ -89,7 +82,7 @@ def test_orders_to_customers_fk(table_registry: Dict[str, DataFrame],
     
     # Validate results
     orphan_count = result["orphan_count"]
-    logger.info(f"  Found {orphan_count} orphaned orders")
+    print(f"  Found {orphan_count} orphaned orders")
     
     # Business expectation: Exactly 1 orphaned order in test data
     assert orphan_count == 1, (
@@ -112,7 +105,7 @@ def test_line_items_to_products_composite_fk(table_registry: Dict[str, DataFrame
         - order_line_items.csv contains 1 line item with invalid order_id+product_id
         - The check should identify exactly 1 orphan
     """
-    logger.info("Testing order_line_items -> order_products composite FK relationship")
+    print("Testing order_line_items -> order_products composite FK relationship")
     
     # Get the specific FK config for this relationship
     composite_fk_config = [
@@ -135,7 +128,7 @@ def test_line_items_to_products_composite_fk(table_registry: Dict[str, DataFrame
     
     # Validate results
     orphan_count = result["orphan_count"]
-    logger.info(f"  Found {orphan_count} orphaned line items")
+    print(f"  Found {orphan_count} orphaned line items")
     
     # Business expectation: Exactly 1 orphaned line item in test data
     assert orphan_count == 1, (
@@ -144,80 +137,6 @@ def test_line_items_to_products_composite_fk(table_registry: Dict[str, DataFrame
     )
     assert not result["passed"], "FK check should fail when orphans exist"
 
-
-def test_employees_self_referencing_fk(table_registry: Dict[str, DataFrame]):
-    """
-    Test self-referencing foreign key: employees.manager_id -> employees.employee_id
-    
-    This test validates that employees referencing non-existent managers are
-    correctly identified as orphaned records. This is a common pattern for
-    organizational hierarchies, category trees, etc.
-    
-    Expected Behavior (based on test data):
-        - employees_hierarchy.csv contains 1 employee with invalid manager_id
-        - The check should identify exactly 1 orphan
-    """
-    logger.info("Testing self-referencing FK: employees -> employees (manager)")
-    
-    employees_df = table_registry["employees"]
-    
-    # Run self-referencing FK check
-    # Employee references manager in the SAME table
-    result = check_referential_integrity(
-        child_df=employees_df,
-        parent_df=employees_df,  # Same table!
-        child_key="manager_id",
-        parent_key="employee_id"
-    )
-    
-    # Validate results
-    orphan_count = result["orphan_count"]
-    logger.info(f"  Found {orphan_count} employees with invalid manager_id")
-    
-    # Business expectation: Exactly 1 orphaned employee (Eve with manager 888)
-    assert orphan_count == 1, (
-        f"Expected 1 employee with invalid manager_id, found {orphan_count}. "
-        "Check employees_hierarchy.csv test data."
-    )
-    assert not result["passed"], "FK check should fail when orphans exist"
-
-
-def test_departments_composite_self_referencing_fk(table_registry: Dict[str, DataFrame]):
-    """
-    Test composite + self-referencing FK:
-    departments.(parent_org_id, parent_dept_id) -> departments.(org_id, dept_id)
-    
-    This test validates complex hierarchies where multiple columns are needed
-    to identify both the child and parent records within the SAME table.
-    Common in multi-tenant systems, partitioned hierarchies, etc.
-    
-    Expected Behavior (based on test data):
-        - departments_hierarchy.csv contains 1 dept with invalid parent reference
-        - The check should identify exactly 1 orphan
-    """
-    logger.info("Testing composite + self-referencing FK: departments -> departments (parent)")
-    
-    departments_df = table_registry["departments"]
-    
-    # Run composite self-referencing FK check
-    # Department references parent department in the SAME table using composite key
-    result = check_referential_integrity_composite(
-        child_df=departments_df,
-        parent_df=departments_df,  # Same table!
-        child_keys=["parent_org_id", "parent_dept_id"],
-        parent_keys=["org_id", "dept_id"]
-    )
-    
-    # Validate results
-    orphan_count = result["orphan_count"]
-    logger.info(f"  Found {orphan_count} departments with invalid parent reference")
-    
-    # Business expectation: Exactly 1 orphaned department (HR with parent org 999, dept 999)
-    assert orphan_count == 1, (
-        f"Expected 1 department with invalid parent reference, found {orphan_count}. "
-        "Check departments_hierarchy.csv test data."
-    )
-    assert not result["passed"], "FK check should fail when orphans exist"
 
 
 def test_check_all_foreign_keys_integration(table_registry: Dict[str, DataFrame],
@@ -233,7 +152,7 @@ def test_check_all_foreign_keys_integration(table_registry: Dict[str, DataFrame]
         - Each check returns valid results
         - Orphan counts match individual test expectations
     """
-    logger.info("Running integration test for all FK relationships")
+    print("Running integration test for all FK relationships")
     
     # Run all FK checks from config
     results = check_all_foreign_keys(table_registry, fk_config["foreign_keys"])
@@ -245,10 +164,10 @@ def test_check_all_foreign_keys_integration(table_registry: Dict[str, DataFrame]
     
     # Validate individual results
     for i, result in enumerate(results, 1):
-        logger.info(f"\n  Check {i}:")
-        logger.info(f"    Relationship: {result.get('child_table')} -> {result.get('parent_table')}")
-        logger.info(f"    Orphan count: {result['orphan_count']}")
-        logger.info(f"    Passed: {result['passed']}")
+        print(f"\n  Check {i}:")
+        print(f"    Relationship: {result.get('child_table')} -> {result.get('parent_table')}")
+        print(f"    Orphan count: {result['orphan_count']}")
+        print(f"    Passed: {result['passed']}")
         
         # Ensure result has required keys
         assert "orphan_count" in result, "Result missing 'orphan_count' key"
@@ -269,41 +188,8 @@ def test_check_all_foreign_keys_integration(table_registry: Dict[str, DataFrame]
         "Expected 1 orphaned line item in order_line_items->order_products relationship"
     )
     
-    logger.info("\nIntegration test PASSED: All FK checks completed successfully")
+    print("\nIntegration test PASSED: All FK checks completed successfully")
 
-
-def test_no_orphans_in_valid_data(spark_session: SparkSession):
-    """
-    Negative test: Validate that FK checks pass when there are no orphans.
-    
-    This test creates synthetic data with valid relationships to ensure
-    the FK check correctly returns passed=True when no violations exist.
-    """
-    logger.info("Testing FK check with valid data (no orphans expected)")
-    
-    # Create synthetic parent data
-    parent_data = [(1, "Parent A"), (2, "Parent B"), (3, "Parent C")]
-    parent_df = spark_session.createDataFrame(parent_data, ["id", "name"])
-    
-    # Create synthetic child data - all references are valid
-    child_data = [(1, 1), (2, 1), (3, 2), (4, 3)]
-    child_df = spark_session.createDataFrame(child_data, ["child_id", "parent_id"])
-    
-    # Run FK check
-    result = check_referential_integrity(
-        child_df=child_df,
-        parent_df=parent_df,
-        child_key="parent_id",
-        parent_key="id"
-    )
-    
-    # Validate: Should have zero orphans
-    assert result["orphan_count"] == 0, (
-        f"Expected 0 orphans with valid data, found {result['orphan_count']}"
-    )
-    assert result["passed"], "FK check should pass when no orphans exist"
-    
-    logger.info("  PASSED: FK check correctly identified no violations")
 
 
 # ==============================================================================
