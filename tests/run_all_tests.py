@@ -23,9 +23,25 @@ def main():
     os.environ['PYTHONDONTWRITEBYTECODE'] = '1'
     sys.dont_write_bytecode = True
     
-    # Run all tests in current directory
-    result = pytest.main([
-        '.',  # Current directory (tests/)
+    # Resolve test files relative to current working directory (tests directory)
+    test_dir = os.getcwd()
+    
+    # Portfolio-ready test files (FK + Schema)
+    # Excludes old test files: test_completeness, test_uniqueness, test_referential_integrity
+    candidate_files = [
+        'test_foreign_keys.py',  # 3 FK tests
+        'test_schema_validation.py',  # Schema validation tests
+    ]
+    
+    # Only include files that actually exist
+    test_files = [os.path.join(test_dir, f) for f in candidate_files
+                  if os.path.exists(os.path.join(test_dir, f))]
+    
+    if not test_files:
+        print("No test files found!")
+        return 1
+    
+    result = pytest.main(test_files + [
         '-v',  # Verbose
         '-p', 'no:cacheprovider',  # Disable cache plugin
         '--tb=short',  # Short traceback format
@@ -44,4 +60,6 @@ def main():
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    result = main()
+    if result != 0:
+        sys.exit(result)

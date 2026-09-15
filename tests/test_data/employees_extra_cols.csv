@@ -1,0 +1,3 @@
+employee_id,name,manager_id,department
+1,Alice,1.0,IT
+2,Bob,2.0,HR
