@@ -9,7 +9,8 @@ can be collected into a DataFrame and saved as a report.
 from pyspark.sql.functions import col
 from pyspark.sql.window import Window
 from pyspark.sql.functions import row_number
-
+from pyspark.sql.functions import max as spark_max
+from pyspark.sql.functions import current_timestamp, unix_timestamp
 
 
 def check_completeness(df, column_name, max_null_pct=0):
@@ -249,3 +250,48 @@ def check_schema(df, expected_schema):
         "type_mismatches": type_mismatches,
         "passed": not missing_columns and not extra_columns and not type_mismatches,
     }
+
+def check_freshness(df, timestamp_column, max_age_hours=24):
+    """
+    Check whether a table's most recent record is recent enough.
+
+    Args:
+        df: the PySpark DataFrame to check.
+        timestamp_column: the column holding when each row was created/updated.
+        max_age_hours: how old the most recent record is allowed to be (default 24).
+
+    Returns:
+        A dict with check name, most recent timestamp found, age in hours,
+        and whether it's within the allowed freshness window.
+    """
+    latest = df.select(spark_max(col(timestamp_column))).collect()[0][0]
+    if latest is None:
+        return {"check": "freshness", "column": timestamp_column,
+                "latest_timestamp": None, "age_hours": None, "passed": False}
+
+    # Calculate age in hours using unix timestamps
+    age_seconds = df.select(
+        (unix_timestamp(current_timestamp()) - unix_timestamp(col(timestamp_column))).alias("age")
+    ).agg(spark_max(col("age"))).collect()[0][0]
+    age_hours = age_seconds / 3600
+
+    return {
+        "check": "freshness",
+        "column": timestamp_column,
+        "latest_timestamp": str(latest),
+        "age_hours": round(age_hours, 1),
+        "passed": age_hours <= max_age_hours,
+    }
+
+
+def check_all_freshness(table_registry, freshness_config):
+    """
+    Run check_freshness() for every table declared in freshness_config.
+    """
+    results = []
+    for entry in freshness_config:
+        df = table_registry[entry["table"]]
+        result = check_freshness(df, entry["timestamp_column"], entry["max_age_hours"])
+        result["table"] = entry["table"]
+        results.append(result)
+    return results
