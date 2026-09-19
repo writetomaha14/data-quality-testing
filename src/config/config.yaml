@@ -29,3 +29,9 @@ expected_schemas:
     - [employee_id, integer]
     - [name, string]
     - [manager_id, double]
+
+consistency_rules:
+  - name: ship_after_order
+    expression: "ship_date >= order_date"
+  - name: total_matches_calculation
+    expression: "ABS(total - (quantity * unit_price)) < 0.01"

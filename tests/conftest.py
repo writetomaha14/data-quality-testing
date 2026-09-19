@@ -216,3 +216,58 @@ def table_registry(test_data: Dict[str, DataFrame], schema_test_data: Dict[str, 
     registry = test_data.copy()
     registry.update(schema_test_data)
     return registry
+
+
+@pytest.fixture(scope="module")
+def consistency_rules() -> list:
+    """Load consistency rules from YAML config."""
+    config_path = CONFIG_DIR / "config.yaml"
+    logger.info(f"Loading consistency rules from {config_path}")
+    
+    with open(config_path, 'r') as f:
+        config = yaml.safe_load(f)
+    
+    rules = config.get('consistency_rules', [])
+    logger.info(f"  Loaded {len(rules)} consistency rules from config")
+    
+    return rules
+
+
+@pytest.fixture(scope="module")
+def consistency_test_data(spark_session: SparkSession) -> DataFrame:
+    """Load test data for consistency rule validation."""
+    logger.info("-" * 70)
+    logger.info(f"Loading consistency test data from {TEST_DATA_DIR}")
+    logger.info("-" * 70)
+    
+    file_path = TEST_DATA_DIR / "orders_consistency_valid.csv"
+    logger.debug(f"Loading {file_path}")
+    df = spark_session.read \
+        .option("header", True) \
+        .option("inferSchema", True) \
+        .csv(str(file_path))
+    
+    logger.info(f"  orders_consistency_valid: {df.count()} rows")
+    logger.info("-" * 70)
+    
+    return df
+
+
+@pytest.fixture(scope="module")
+def consistency_violation_data(spark_session: SparkSession) -> DataFrame:
+    """Load test data with intentional consistency rule violations."""
+    logger.info("-" * 70)
+    logger.info(f"Loading consistency violation test data from {TEST_DATA_DIR}")
+    logger.info("-" * 70)
+    
+    file_path = TEST_DATA_DIR / "orders_consistency_violations.csv"
+    logger.debug(f"Loading {file_path}")
+    df = spark_session.read \
+        .option("header", True) \
+        .option("inferSchema", True) \
+        .csv(str(file_path))
+    
+    logger.info(f"  orders_consistency_violations: {df.count()} rows")
+    logger.info("-" * 70)
+    
+    return df

@@ -295,3 +295,85 @@ def check_all_freshness(table_registry, freshness_config):
         result["table"] = entry["table"]
         results.append(result)
     return results
+
+def check_consistency(df, rule_name, expression):
+    """
+    Check how many rows violate a given consistency rule.
+
+    Args:
+        df: the PySpark DataFrame to check.
+        rule_name: a human-readable name for the rule (for reporting).
+        expression: a SQL boolean expression string that should be TRUE
+            for every valid row, e.g. "ship_date >= order_date".
+
+    Returns:
+        A dict with check name, rule name, violation count, and pass/fail.
+        If the SQL expression is invalid, returns an error dict with passed=False.
+
+    Examples:
+        >>> check_consistency(orders_df, "valid_dates", "ship_date >= order_date")
+        >>> check_consistency(orders_df, "positive_amount", "amount > 0")
+        >>> check_consistency(orders_df, "valid_status", "status IN ('active', 'pending', 'closed')")
+    """
+    try:
+        total = df.count()
+        violations = df.filter(f"NOT ({expression})").count()
+        return {
+            "check": "consistency",
+            "rule_name": rule_name,
+            "expression": expression,
+            "total_rows": total,
+            "violation_count": violations,
+            "passed": violations == 0,
+        }
+    except Exception as e:
+        return {
+            "check": "consistency",
+            "rule_name": rule_name,
+            "expression": expression,
+            "error": str(e),
+            "passed": False,
+        }
+
+
+def check_all_consistency(df, rules_config):
+    """
+    Run check_consistency() for every rule declared in rules_config.
+
+    Args:
+        df: the PySpark DataFrame to check.
+        rules_config: a list of rule dicts, each with 'name' and 'expression' keys,
+            e.g. [{"name": "valid_dates", "expression": "end_date >= start_date"}].
+
+    Returns:
+        A list of dicts, one per rule, in the same shape as check_consistency().
+
+    Example:
+        >>> rules = [
+        ...     {"name": "valid_dates", "expression": "end_date >= start_date"},
+        ...     {"name": "positive_amount", "expression": "amount > 0"},
+        ... ]
+        >>> check_all_consistency(orders_df, rules)
+    """
+    return [check_consistency(df, r["name"], r["expression"]) for r in rules_config]
+
+
+def get_violating_rows(df, expression):
+    """
+    Return the actual rows that violate a consistency rule.
+
+    Args:
+        df: the PySpark DataFrame to check.
+        expression: a SQL boolean expression string that should be TRUE
+            for valid rows (same format as check_consistency).
+
+    Returns:
+        A DataFrame containing only the rows that violate the rule.
+        Note: unlike check_consistency(), this returns a DataFrame, not
+        a dict - this function is for investigation, not summarizing.
+
+    Example:
+        >>> violating = get_violating_rows(orders_df, "ship_date >= order_date")
+        >>> violating.show()
+    """
+    return df.filter(f"NOT ({expression})")
