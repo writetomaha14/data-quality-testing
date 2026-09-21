@@ -90,4 +90,4 @@ Future direction: extending these validation principles toward AI/LLM output eva
 ---
 About
 Built as part of a structured, self-directed 120-day study plan moving from PySpark foundations into a full data quality engineering framework. Full progress log available on request.
-Connect: [LinkedIn](www.linkedin.com/in/mahalakshmi-b-99086a40) [GitHub](https://github.com/writetomaha14/data-quality-testing )
+Connect: [LinkedIn](https://www.linkedin.com/in/mahalakshmi-b-99086a40) · [GitHub](https://github.com/writetomaha14/data-quality-testing)
