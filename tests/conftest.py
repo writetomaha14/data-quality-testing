@@ -271,3 +271,58 @@ def consistency_violation_data(spark_session: SparkSession) -> DataFrame:
     logger.info("-" * 70)
     
     return df
+
+
+@pytest.fixture(scope="module")
+def business_rules() -> list:
+    """Load business rules from YAML config."""
+    config_path = CONFIG_DIR / "config.yaml"
+    logger.info(f"Loading business rules from {config_path}")
+    
+    with open(config_path, 'r') as f:
+        config = yaml.safe_load(f)
+    
+    rules = config.get('business_rules', [])
+    logger.info(f"  Loaded {len(rules)} business rules from config")
+    
+    return rules
+
+
+@pytest.fixture(scope="module")
+def business_test_data(spark_session: SparkSession) -> DataFrame:
+    """Load test data for business rule validation."""
+    logger.info("-" * 70)
+    logger.info(f"Loading business test data from {TEST_DATA_DIR}")
+    logger.info("-" * 70)
+    
+    file_path = TEST_DATA_DIR / "orders_business_valid.csv"
+    logger.debug(f"Loading {file_path}")
+    df = spark_session.read \
+        .option("header", True) \
+        .option("inferSchema", True) \
+        .csv(str(file_path))
+    
+    logger.info(f"  orders_business_valid: {df.count()} rows")
+    logger.info("-" * 70)
+    
+    return df
+
+
+@pytest.fixture(scope="module")
+def business_violation_data(spark_session: SparkSession) -> DataFrame:
+    """Load test data with intentional business rule violations."""
+    logger.info("-" * 70)
+    logger.info(f"Loading business violation test data from {TEST_DATA_DIR}")
+    logger.info("-" * 70)
+    
+    file_path = TEST_DATA_DIR / "orders_business_violations.csv"
+    logger.debug(f"Loading {file_path}")
+    df = spark_session.read \
+        .option("header", True) \
+        .option("inferSchema", True) \
+        .csv(str(file_path))
+    
+    logger.info(f"  orders_business_violations: {df.count()} rows")
+    logger.info("-" * 70)
+    
+    return df

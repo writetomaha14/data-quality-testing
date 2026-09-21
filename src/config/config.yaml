@@ -35,3 +35,9 @@ consistency_rules:
     expression: "ship_date >= order_date"
   - name: total_matches_calculation
     expression: "ABS(total - (quantity * unit_price)) < 0.01"
+
+business_rules:
+  - name: valid_status_enum
+    expression: "status IN ('active', 'shipped', 'pending', 'closed')"
+  - name: discount_within_total
+    expression: "discount <= total"

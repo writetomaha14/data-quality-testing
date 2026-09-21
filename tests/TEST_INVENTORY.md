@@ -204,6 +204,49 @@
 
 ---
 
+## 8. Business Rules — Test Inventory
+
+**Test File:** test_business_rules.py  
+**Config Source:** config.yaml → business_rules  
+**DQ Functions Tested:** check_consistency, check_all_consistency, get_violating_rows
+
+### Test Data Files
+
+| File | Location | Purpose | Rows |
+| --- | --- | --- | --- |
+| orders_business_valid.csv | tests/test_data/ | All rows pass all rules | 5 |
+| orders_business_violations.csv | tests/test_data/ | Intentional rule violations | 6 |
+| config.yaml | src/config/ | Business rule definitions (YAML) | 2 rules |
+
+### Test Cases
+
+| # | Test Name | Description | Category | Test Data | Rule | Notes |
+| --- | --- | --- | --- | --- | --- | --- |
+| 1 | test_business_single_rule_passes | Verify check passes when all status values are in allowed set | Pass (Happy Path) | orders_business_valid.csv | valid_status_enum | Enum / allowed-values rule loaded from YAML config |
+| 2 | test_business_discount_rule_passes | Verify check passes when discount <= total for all rows | Pass (Happy Path) | orders_business_valid.csv | discount_within_total | Business logic constraint rule |
+| 3 | test_check_all_business_rules_from_yaml_config | Verify batch checking runs all rules from YAML and all pass on valid data | Pass (Batch) | orders_business_valid.csv | All rules | Tests check_all_consistency function with YAML-driven config |
+| 4 | test_business_finds_status_violations | Verify check detects 2 rows with invalid status values | Fail (Violation Detection) | orders_business_violations.csv | valid_status_enum | Rows 1005, 1006 violate status enum (returned, cancelled) |
+| 5 | test_business_finds_discount_violations | Verify check detects 2 rows where discount > total | Fail (Violation Detection) | orders_business_violations.csv | discount_within_total | Rows 1004, 1005 violate discount <= total |
+| 6 | test_get_violating_rows_for_business_rules | Verify helper function returns rows matching violation count from check function | Helper Function | orders_business_violations.csv | valid_status_enum | Cross-validates check_consistency vs get_violating_rows |
+
+### YAML Rule Configuration
+
+| Rule Name | Expression | Type |
+| --- | --- | --- |
+| valid_status_enum | `status IN ('active', 'shipped', 'pending', 'closed')` | Enum / allowed values |
+| discount_within_total | `discount <= total` | Business logic constraint |
+
+### Fixtures Used
+
+| Fixture | Source | Scope | Description |
+| --- | --- | --- | --- |
+| business_test_data | conftest.py | module | Loads orders_business_valid.csv |
+| business_violation_data | conftest.py | module | Loads orders_business_violations.csv |
+| business_rules | conftest.py | module | Loads business_rules from config.yaml |
+| spark_session | conftest.py | session | Shared SparkSession |
+
+---
+
 ## Test Data Directory
 
 All test data files are located in `tests/test_data/`:
@@ -223,6 +266,8 @@ All test data files are located in `tests/test_data/`:
 | employees_missing_cols.csv | Schema Validation | Employees with missing columns |
 | employees_wrong_types.csv | Schema Validation | Employees with wrong data types |
 | orders_with_timestamps.csv | Freshness | Orders with timestamp columns for freshness checks |
+| orders_business_valid.csv | Business Rules | Valid orders (5 rows, all business rules pass) |
+| orders_business_violations.csv | Business Rules | Orders with violations (6 rows, 2 rules broken) |
 
 ---
 
@@ -230,6 +275,6 @@ All test data files are located in `tests/test_data/`:
 
 | File | Location | Purpose |
 | --- | --- | --- |
-| config.yaml | src/config/ | Central configuration (FK definitions, consistency rules, schema expectations, thresholds) |
+| config.yaml | src/config/ | Central configuration (FK definitions, consistency rules, business rules, schema expectations, thresholds) |
 | conftest.py | tests/ | Pytest fixtures (spark_session, test_data, config loaders) |
 | pytest.ini | tests/ | Pytest configuration |
