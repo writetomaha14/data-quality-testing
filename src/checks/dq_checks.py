@@ -11,6 +11,7 @@ from pyspark.sql.window import Window
 from pyspark.sql.functions import row_number
 from pyspark.sql.functions import max as spark_max
 from pyspark.sql.functions import current_timestamp, unix_timestamp
+from pyspark.sql.functions import sum as spark_sum
 
 
 def check_completeness(df, column_name, max_null_pct=0):
@@ -377,3 +378,188 @@ def get_violating_rows(df, expression):
         >>> violating.show()
     """
     return df.filter(f"NOT ({expression})")
+
+
+# ==============================================================================
+# Reconciliation Checks
+# ==============================================================================
+
+def check_record_count(source_df, target_df):
+    """
+    Compare row counts between source and target DataFrames.
+
+    Args:
+        source_df: the source DataFrame (e.g., upstream table).
+        target_df: the target DataFrame (e.g., downstream copy).
+
+    Returns:
+        A dict with check name, source count, target count, count
+        difference, and whether the counts match.
+    """
+    source_count = source_df.count()
+    target_count = target_df.count()
+    return {
+        "check": "record_count_reconciliation",
+        "source_count": source_count,
+        "target_count": target_count,
+        "count_diff": source_count - target_count,
+        "passed": source_count == target_count,
+    }
+
+
+def check_sum_reconciliation(source_df, target_df, column_name, tolerance=0.01):
+    """
+    Compare the sum of a column between source and target DataFrames.
+
+    Args:
+        source_df: the source DataFrame.
+        target_df: the target DataFrame.
+        column_name: the numeric column to compare sums for.
+        tolerance: the maximum allowed difference to still pass (default 0.01).
+
+    Returns:
+        A dict with check name, column, source sum, target sum, difference,
+        and whether the sums match within tolerance.
+    """
+    source_sum = source_df.agg(spark_sum(col(column_name))).collect()[0][0] or 0
+    target_sum = target_df.agg(spark_sum(col(column_name))).collect()[0][0] or 0
+    diff = round(source_sum - target_sum, 2)
+    return {
+        "check": "sum_reconciliation",
+        "column": column_name,
+        "source_sum": source_sum,
+        "target_sum": target_sum,
+        "diff": diff,
+        "passed": abs(diff) <= tolerance,
+    }
+
+
+def check_row_level_reconciliation(source_df, target_df, key_columns):
+    """
+    Compare rows between source and target DataFrames using key columns.
+
+    Detects three types of differences:
+    - Missing rows: present in source but absent from target.
+    - Extra rows: present in target but absent from source.
+    - Mismatched rows: key exists in both but non-key column values differ.
+
+    Args:
+        source_df: the source DataFrame.
+        target_df: the target DataFrame.
+        key_columns: a column name (str) or list of column names that
+            uniquely identify each row for comparison.
+
+    Returns:
+        A dict with check name, key columns, source/target counts,
+        missing/extra/mismatch counts, and whether all rows match.
+    """
+    if isinstance(key_columns, str):
+        key_columns = [key_columns]
+
+    source_count = source_df.count()
+    target_count = target_df.count()
+
+    # Missing: rows in source whose key doesn't exist in target
+    missing = source_df.join(
+        target_df.select(*key_columns).distinct(), key_columns, "left_anti"
+    )
+    missing_count = missing.count()
+
+    # Extra: rows in target whose key doesn't exist in source
+    extra = target_df.join(
+        source_df.select(*key_columns).distinct(), key_columns, "left_anti"
+    )
+    extra_count = extra.count()
+
+    # Mismatched: rows where key matches but full row differs
+    matched_source = source_df.join(
+        target_df.select(*key_columns).distinct(), key_columns, "inner"
+    )
+    matched_target = target_df.join(
+        source_df.select(*key_columns).distinct(), key_columns, "inner"
+    )
+    mismatch_count = matched_source.exceptAll(matched_target).count()
+
+    return {
+        "check": "row_level_reconciliation",
+        "key_columns": key_columns,
+        "source_count": source_count,
+        "target_count": target_count,
+        "missing_count": missing_count,
+        "extra_count": extra_count,
+        "mismatch_count": mismatch_count,
+        "passed": missing_count == 0 and extra_count == 0 and mismatch_count == 0,
+    }
+
+
+def get_mismatched_rows(source_df, target_df, key_columns):
+    """
+    Return the actual rows from source that don't match the target.
+
+    Includes rows that are missing from target (key not found) and rows
+    where the key exists in both but column values differ.
+
+    Args:
+        source_df: the source DataFrame.
+        target_df: the target DataFrame.
+        key_columns: a column name (str) or list of column names that
+            uniquely identify each row for comparison.
+
+    Returns:
+        A DataFrame containing only the mismatched rows from source.
+        Note: unlike check_row_level_reconciliation(), this returns a
+        DataFrame, not a dict - for investigation, not summarizing.
+    """
+    if isinstance(key_columns, str):
+        key_columns = [key_columns]
+
+    # Missing: rows in source but not in target
+    missing = source_df.join(
+        target_df.select(*key_columns).distinct(), key_columns, "left_anti"
+    )
+
+    # Mismatched: rows where key matches but values differ
+    matched_source = source_df.join(
+        target_df.select(*key_columns).distinct(), key_columns, "inner"
+    )
+    matched_target = target_df.join(
+        source_df.select(*key_columns).distinct(), key_columns, "inner"
+    )
+    mismatched = matched_source.exceptAll(matched_target)
+
+    return missing.unionAll(mismatched)
+
+
+def check_all_reconciliation(source_df, target_df, reconciliation_config):
+    """
+    Run all reconciliation checks declared in reconciliation_config.
+
+    Args:
+        source_df: the source DataFrame.
+        target_df: the target DataFrame.
+        reconciliation_config: a list of check dicts from YAML config,
+            each with a 'check' key specifying the check type and any
+            required parameters.
+            e.g. [
+                {"check": "record_count"},
+                {"check": "sum", "column": "total"},
+                {"check": "row_level", "key_columns": ["order_id"]}
+            ]
+
+    Returns:
+        A list of dicts, one per check, in the same shape as the
+        individual check functions.
+    """
+    results = []
+    for entry in reconciliation_config:
+        check_type = entry["check"]
+        if check_type == "record_count":
+            result = check_record_count(source_df, target_df)
+        elif check_type == "sum":
+            result = check_sum_reconciliation(source_df, target_df, entry["column"])
+        elif check_type == "row_level":
+            result = check_row_level_reconciliation(source_df, target_df, entry["key_columns"])
+        else:
+            result = {"check": check_type, "error": f"Unknown check type: {check_type}", "passed": False}
+        results.append(result)
+    return results

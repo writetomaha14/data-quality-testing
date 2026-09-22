@@ -10,6 +10,7 @@ Usage:
 
 import os
 import sys
+import logging
 import pytest
 
 
@@ -23,6 +24,9 @@ def main():
     os.environ['PYTHONDONTWRITEBYTECODE'] = '1'
     sys.dont_write_bytecode = True
     
+    # Suppress conftest fixture INFO logs (SparkSession loading, CSV loading, etc.)
+    logging.disable(logging.INFO)
+    
     # Resolve test files relative to current working directory (tests directory)
     test_dir = os.getcwd()
     
@@ -31,6 +35,9 @@ def main():
     candidate_files = [
         'test_foreign_keys.py',  # 3 FK tests
         'test_schema_validation.py',  # Schema validation tests
+        'test_business_rules.py',    # Business Rules tests
+        'test_consistency_rules', # Consistency Rules
+        'test_freshness' # Freshness Tests
     ]
     
     # Only include files that actually exist
@@ -42,9 +49,10 @@ def main():
         return 1
     
     result = pytest.main(test_files + [
-        '-v',  # Verbose
+        '-v',  # Verbose — shows each test file as PASSED/FAILED
         '-p', 'no:cacheprovider',  # Disable cache plugin
         '--tb=short',  # Short traceback format
+        '--log-cli-level=WARNING',  # Suppress INFO logs from conftest fixtures
         '-x',  # Stop on first failure
     ])
     

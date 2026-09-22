@@ -24,9 +24,9 @@ def main():
         'day34_foreign_keys_demo',
         'day35_schema_validation_demo',
         'day36_freshness_demo',
-        'day37_consistency_rules_demo'
+        'day37_consistency_rules_demo',
+        'day39_reconciliation_demo'
         # Add new demo notebooks here as you create them
-        # 'day37_duplicate_check_demo',
     ]
     
     results = {}

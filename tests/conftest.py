@@ -326,3 +326,78 @@ def business_violation_data(spark_session: SparkSession) -> DataFrame:
     logger.info("-" * 70)
     
     return df
+
+
+@pytest.fixture(scope="module")
+def reconciliation_source_data(spark_session: SparkSession) -> DataFrame:
+    """Load source dataset for reconciliation tests."""
+    logger.info("-" * 70)
+    logger.info(f"Loading reconciliation source data from {TEST_DATA_DIR}")
+    logger.info("-" * 70)
+    
+    file_path = TEST_DATA_DIR / "reconciliation_source.csv"
+    logger.debug(f"Loading {file_path}")
+    df = spark_session.read \
+        .option("header", True) \
+        .option("inferSchema", True) \
+        .csv(str(file_path))
+    
+    logger.info(f"  reconciliation_source: {df.count()} rows")
+    logger.info("-" * 70)
+    
+    return df
+
+
+@pytest.fixture(scope="module")
+def reconciliation_target_data(spark_session: SparkSession) -> DataFrame:
+    """Load target dataset for reconciliation tests (matches source)."""
+    logger.info("-" * 70)
+    logger.info(f"Loading reconciliation target data from {TEST_DATA_DIR}")
+    logger.info("-" * 70)
+    
+    file_path = TEST_DATA_DIR / "reconciliation_target.csv"
+    logger.debug(f"Loading {file_path}")
+    df = spark_session.read \
+        .option("header", True) \
+        .option("inferSchema", True) \
+        .csv(str(file_path))
+    
+    logger.info(f"  reconciliation_target: {df.count()} rows")
+    logger.info("-" * 70)
+    
+    return df
+
+
+@pytest.fixture(scope="module")
+def reconciliation_mismatch_target_data(spark_session: SparkSession) -> DataFrame:
+    """Load target dataset with intentional reconciliation mismatches."""
+    logger.info("-" * 70)
+    logger.info(f"Loading reconciliation mismatch target data from {TEST_DATA_DIR}")
+    logger.info("-" * 70)
+    
+    file_path = TEST_DATA_DIR / "reconciliation_mismatch_target.csv"
+    logger.debug(f"Loading {file_path}")
+    df = spark_session.read \
+        .option("header", True) \
+        .option("inferSchema", True) \
+        .csv(str(file_path))
+    
+    logger.info(f"  reconciliation_mismatch_target: {df.count()} rows")
+    logger.info("-" * 70)
+    
+    return df
+
+
+@pytest.fixture(scope="module")
+def reconciliation_config() -> list:
+    """Load reconciliation configuration from YAML."""
+    config_path = CONFIG_DIR / "config.yaml"
+    logger.info(f"Loading reconciliation configuration from {config_path}")
+    
+    with open(config_path, 'r') as f:
+        config = yaml.safe_load(f)
+    
+    recon_config = config.get('reconciliation', [])
+    logger.info(f"  Loaded {len(recon_config)} reconciliation checks from config")
+    
+    return recon_config

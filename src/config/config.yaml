@@ -41,3 +41,10 @@ business_rules:
     expression: "status IN ('active', 'shipped', 'pending', 'closed')"
   - name: discount_within_total
     expression: "discount <= total"
+
+reconciliation:
+  - check: record_count
+  - check: sum
+    column: total
+  - check: row_level
+    key_columns: [order_id]
