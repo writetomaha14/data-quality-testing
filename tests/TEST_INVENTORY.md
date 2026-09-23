@@ -3,7 +3,7 @@
 **Project:** Data Quality Engineering Initiative  
 **Repository:** data-quality-testing  
 **Platform:** Databricks (PySpark, pytest)  
-**Last Updated:** 2024
+**Last Updated:** 2025
 
 ---
 
@@ -18,7 +18,9 @@
 | 5 | Completeness | test_completeness.py | 3 | ✅ Complete |
 | 6 | Uniqueness | test_uniqueness.py | 4 | ✅ Complete |
 | 7 | Freshness | test_freshness.py | 7 | ✅ Complete |
-| | **TOTAL** | | **28** | |
+| 8 | Business Rules | test_business_rules.py | 6 | ✅ Complete |
+| 9 | Reconciliation | test_reconciliation.py | 10 | ✅ Complete |
+| | **TOTAL** | | **44** | |
 
 ---
 
@@ -247,6 +249,60 @@
 
 ---
 
+## 9. Reconciliation — Test Inventory
+
+**Test File:** test_reconciliation.py  
+**Config Source:** config.yaml → reconciliation  
+**DQ Functions Tested:** check_record_count, check_sum_reconciliation, check_row_level_reconciliation, check_all_reconciliation, get_mismatched_rows
+
+### Test Data Files
+
+| File | Location | Purpose | Rows |
+| --- | --- | --- | --- |
+| reconciliation_source.csv | tests/test_data/ | Source dataset (upstream orders) | 5 |
+| reconciliation_target.csv | tests/test_data/ | Target dataset — identical to source (all checks pass) | 5 |
+| reconciliation_mismatch_target.csv | tests/test_data/ | Target with intentional differences (missing, extra, mismatched rows) | 4 |
+| config.yaml | src/config/ | Reconciliation rule definitions (YAML) | 3 checks |
+
+### Test Cases
+
+| # | Test Name | Description | Category | Test Data | Notes |
+| --- | --- | --- | --- | --- | --- |
+| 1 | test_record_count_match | Record count reconciliation passes when source and target have same row count | Pass (Happy Path) | reconciliation_source.csv, reconciliation_target.csv | Verifies count match logic; expected values derived from data |
+| 2 | test_record_count_mismatch | Record count reconciliation detects when source and target counts differ | Fail (Violation Detection) | reconciliation_source.csv, reconciliation_mismatch_target.csv | Verifies count diff and passed=False |
+| 3 | test_sum_reconciliation_passes | Sum reconciliation passes when column totals match | Pass (Happy Path) | reconciliation_source.csv, reconciliation_target.csv | Column name from config.yaml; expected sum derived from data |
+| 4 | test_sum_reconciliation_detects_mismatch | Sum reconciliation detects when column totals differ | Fail (Violation Detection) | reconciliation_source.csv, reconciliation_mismatch_target.csv | Verifies diff and passed=False |
+| 5 | test_row_level_reconciliation_passes | Row-level reconciliation passes when all rows match | Pass (Happy Path) | reconciliation_source.csv, reconciliation_target.csv | Key columns from config.yaml |
+| 6 | test_row_level_finds_missing_rows | Detects rows in source but missing from target | Fail (Violation Detection) | reconciliation_source.csv, reconciliation_mismatch_target.csv | Verifies missing_count > 0 |
+| 7 | test_row_level_finds_extra_rows | Detects rows in target but missing from source | Fail (Violation Detection) | reconciliation_source.csv, reconciliation_mismatch_target.csv | Verifies extra_count > 0 |
+| 8 | test_get_mismatched_rows | Returns actual mismatched rows matching missing + mismatch count | Helper Function | reconciliation_source.csv, reconciliation_mismatch_target.csv | Cross-validates check vs get function |
+| 9 | test_check_all_reconciliation_from_yaml_config | Batch reconciliation runs all checks from config and all pass on matching data | Pass (Batch) | reconciliation_source.csv, reconciliation_target.csv | Tests check_all_reconciliation with YAML-driven config |
+| 10 | test_check_all_reconciliation_detects_failures | Batch reconciliation detects failures on mismatched data | Fail (Batch) | reconciliation_source.csv, reconciliation_mismatch_target.csv | Verifies at least one check fails; row_level specifically fails |
+
+### YAML Rule Configuration
+
+| Check Type | Parameters | Description |
+| --- | --- | --- |
+| record_count | — | Compare total row counts between source and target |
+| sum | column: total | Compare sum of the `total` column between source and target |
+| row_level | key_columns: [order_id] | Compare rows using `order_id` as key (missing, extra, mismatched) |
+
+### Fixtures Used
+
+| Fixture | Source | Scope | Description |
+| --- | --- | --- | --- |
+| reconciliation_source_data | conftest.py | module | Loads reconciliation_source.csv |
+| reconciliation_target_data | conftest.py | module | Loads reconciliation_target.csv |
+| reconciliation_mismatch_target_data | conftest.py | module | Loads reconciliation_mismatch_target.csv |
+| reconciliation_config | conftest.py | module | Loads reconciliation rules from config.yaml |
+| spark_session | conftest.py | session | Shared SparkSession |
+
+### Design Principle
+
+Tests are **data-agnostic and config-driven** — no hard-coded counts, sums, or column names. All expected values are derived from the DataFrames themselves, and all parameters come from config.yaml. Tests verify function logic, not specific data values.
+
+---
+
 ## Test Data Directory
 
 All test data files are located in `tests/test_data/`:
@@ -268,6 +324,9 @@ All test data files are located in `tests/test_data/`:
 | orders_with_timestamps.csv | Freshness | Orders with timestamp columns for freshness checks |
 | orders_business_valid.csv | Business Rules | Valid orders (5 rows, all business rules pass) |
 | orders_business_violations.csv | Business Rules | Orders with violations (6 rows, 2 rules broken) |
+| reconciliation_source.csv | Reconciliation | Source dataset (5 rows) |
+| reconciliation_target.csv | Reconciliation | Target dataset — identical to source (5 rows) |
+| reconciliation_mismatch_target.csv | Reconciliation | Target with differences (4 rows, missing/extra/mismatched) |
 
 ---
 
@@ -275,6 +334,6 @@ All test data files are located in `tests/test_data/`:
 
 | File | Location | Purpose |
 | --- | --- | --- |
-| config.yaml | src/config/ | Central configuration (FK definitions, consistency rules, business rules, schema expectations, thresholds) |
+| config.yaml | src/config/ | Central configuration (FK definitions, consistency rules, business rules, reconciliation rules, schema expectations, thresholds) |
 | conftest.py | tests/ | Pytest fixtures (spark_session, test_data, config loaders) |
 | pytest.ini | tests/ | Pytest configuration |
