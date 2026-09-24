@@ -25,7 +25,8 @@ def main():
         'day35_schema_validation_demo',
         'day36_freshness_demo',
         'day37_consistency_rules_demo',
-        'day39_reconciliation_demo'
+        'day39_reconciliation_demo',
+        'day40_anomaly_basics_demo'
         # Add new demo notebooks here as you create them
     ]
     

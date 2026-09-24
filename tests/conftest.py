@@ -401,3 +401,38 @@ def reconciliation_config() -> list:
     logger.info(f"  Loaded {len(recon_config)} reconciliation checks from config")
     
     return recon_config
+
+
+@pytest.fixture(scope="module")
+def anomaly_test_data(spark_session: SparkSession) -> DataFrame:
+    """Load test data for anomaly detection tests."""
+    logger.info("-" * 70)
+    logger.info(f"Loading anomaly test data from {TEST_DATA_DIR}")
+    logger.info("-" * 70)
+    
+    file_path = TEST_DATA_DIR / "sales_anomaly_data.csv"
+    logger.debug(f"Loading {file_path}")
+    df = spark_session.read \
+        .option("header", True) \
+        .option("inferSchema", True) \
+        .csv(str(file_path))
+    
+    logger.info(f"  sales_anomaly_data: {df.count()} rows")
+    logger.info("-" * 70)
+    
+    return df
+
+
+@pytest.fixture(scope="module")
+def anomaly_config() -> list:
+    """Load anomaly detection configuration from YAML."""
+    config_path = CONFIG_DIR / "config.yaml"
+    logger.info(f"Loading anomaly configuration from {config_path}")
+    
+    with open(config_path, 'r') as f:
+        config = yaml.safe_load(f)
+    
+    anomaly_checks = config.get('anomaly_checks', [])
+    logger.info(f"  Loaded {len(anomaly_checks)} anomaly checks from config")
+    
+    return anomaly_checks

@@ -48,3 +48,17 @@ reconciliation:
     column: total
   - check: row_level
     key_columns: [order_id]
+
+anomaly_checks:
+  - method: z_score
+    column: sales_amount
+    threshold: 2.0
+  - method: z_score
+    column: units_sold
+    threshold: 2.0
+  - method: iqr
+    column: sales_amount
+    multiplier: 1.5
+  - method: iqr
+    column: units_sold
+    multiplier: 1.5

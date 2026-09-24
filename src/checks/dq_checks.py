@@ -563,3 +563,201 @@ def check_all_reconciliation(source_df, target_df, reconciliation_config):
             result = {"check": check_type, "error": f"Unknown check type: {check_type}", "passed": False}
         results.append(result)
     return results
+
+
+# ==============================================================================
+# Anomaly Detection Checks
+# ==============================================================================
+
+def check_z_score_anomaly(df, column_name, threshold=3.0):
+    """
+    Detect anomalous values in a numeric column using the Z-score method.
+
+    A Z-score measures how many standard deviations a value is from the
+    mean.  Values with an absolute Z-score above the threshold are flagged
+    as anomalies.
+
+    Args:
+        df: the PySpark DataFrame to check.
+        column_name: the numeric column to analyze.
+        threshold: the maximum |Z-score| allowed before a value is flagged
+            as anomalous (default 3.0 — three standard deviations).
+
+    Returns:
+        A dict with check name, column, mean, stddev, threshold,
+        anomaly count, anomaly percentage, and whether no anomalies
+        were found (passed = True when anomaly_count == 0).
+    """
+    from pyspark.sql.functions import mean as spark_mean, stddev as spark_stddev, abs as spark_abs
+
+    total = df.count()
+    stats = df.agg(
+        spark_mean(col(column_name)).alias("mean"),
+        spark_stddev(col(column_name)).alias("stddev"),
+    ).collect()[0]
+
+    mean_val = stats["mean"]
+    stddev_val = stats["stddev"]
+
+    # If stddev is 0 or None, every value is identical — no anomalies
+    if mean_val is None or stddev_val is None or stddev_val == 0:
+        return {
+            "check": "z_score_anomaly",
+            "column": column_name,
+            "mean": mean_val,
+            "stddev": stddev_val,
+            "threshold": threshold,
+            "total_rows": total,
+            "anomaly_count": 0,
+            "anomaly_pct": 0.0,
+            "passed": True,
+        }
+
+    anomalies = df.filter(
+        spark_abs((col(column_name) - mean_val) / stddev_val) > threshold
+    ).count()
+    pct = round(anomalies / total * 100, 1) if total > 0 else 0.0
+
+    return {
+        "check": "z_score_anomaly",
+        "column": column_name,
+        "mean": round(mean_val, 2),
+        "stddev": round(stddev_val, 2),
+        "threshold": threshold,
+        "total_rows": total,
+        "anomaly_count": anomalies,
+        "anomaly_pct": pct,
+        "passed": anomalies == 0,
+    }
+
+
+def check_iqr_anomaly(df, column_name, multiplier=1.5):
+    """
+    Detect anomalous values in a numeric column using the IQR method.
+
+    The interquartile range (IQR) is the range between the 25th and 75th
+    percentiles.  Values below Q1 - multiplier * IQR or above
+    Q3 + multiplier * IQR are flagged as anomalies.
+
+    Args:
+        df: the PySpark DataFrame to check.
+        column_name: the numeric column to analyze.
+        multiplier: the IQR multiplier controlling how far beyond the
+            quartiles a value must be to be flagged (default 1.5).
+
+    Returns:
+        A dict with check name, column, Q1, Q3, IQR, lower/upper bounds,
+        anomaly count, anomaly percentage, and pass/fail.
+    """
+    quantiles = df.stat.approxQuantile(column_name, [0.25, 0.75], 0.01)
+    q1 = quantiles[0]
+    q3 = quantiles[1]
+    iqr = q3 - q1
+    lower_bound = q1 - multiplier * iqr
+    upper_bound = q3 + multiplier * iqr
+
+    total = df.count()
+    anomalies = df.filter(
+        (col(column_name) < lower_bound) | (col(column_name) > upper_bound)
+    ).count()
+    pct = round(anomalies / total * 100, 1) if total > 0 else 0.0
+
+    return {
+        "check": "iqr_anomaly",
+        "column": column_name,
+        "q1": round(q1, 2),
+        "q3": round(q3, 2),
+        "iqr": round(iqr, 2),
+        "lower_bound": round(lower_bound, 2),
+        "upper_bound": round(upper_bound, 2),
+        "total_rows": total,
+        "anomaly_count": anomalies,
+        "anomaly_pct": pct,
+        "passed": anomalies == 0,
+    }
+
+
+def get_anomaly_rows(df, column_name, method="z_score", threshold=3.0, multiplier=1.5):
+    """
+    Return the actual rows flagged as anomalous by the chosen method.
+
+    Args:
+        df: the PySpark DataFrame to check.
+        column_name: the numeric column to analyze.
+        method: the anomaly detection method — "z_score" or "iqr".
+        threshold: the Z-score threshold (used only when method="z_score").
+        multiplier: the IQR multiplier (used only when method="iqr").
+
+    Returns:
+        A DataFrame containing only the anomalous rows.
+        Note: unlike the check_* functions, this returns a DataFrame,
+        not a dict — for investigation, not summarizing.
+    """
+    from pyspark.sql.functions import mean as spark_mean, stddev as spark_stddev, abs as spark_abs
+
+    if method == "z_score":
+        stats = df.agg(
+            spark_mean(col(column_name)).alias("mean"),
+            spark_stddev(col(column_name)).alias("stddev"),
+        ).collect()[0]
+        mean_val = stats["mean"]
+        stddev_val = stats["stddev"]
+
+        if mean_val is None or stddev_val is None or stddev_val == 0:
+            return df.filter(col(column_name).isNull())  # no anomalies possible
+
+        return df.filter(
+            spark_abs((col(column_name) - mean_val) / stddev_val) > threshold
+        )
+
+    elif method == "iqr":
+        quantiles = df.stat.approxQuantile(column_name, [0.25, 0.75], 0.01)
+        q1 = quantiles[0]
+        q3 = quantiles[1]
+        iqr = q3 - q1
+        lower_bound = q1 - multiplier * iqr
+        upper_bound = q3 + multiplier * iqr
+
+        return df.filter(
+            (col(column_name) < lower_bound) | (col(column_name) > upper_bound)
+        )
+
+    else:
+        raise ValueError(f"Unknown anomaly method: {method}. Use 'z_score' or 'iqr'.")
+
+
+def check_all_anomalies(df, anomaly_config):
+    """
+    Run anomaly detection for every column/method declared in anomaly_config.
+
+    Args:
+        df: the PySpark DataFrame to check.
+        anomaly_config: a list of check dicts from YAML config,
+            each with a 'method' key ('z_score' or 'iqr'), a 'column'
+            key, and optional 'threshold' or 'multiplier' keys.
+            e.g. [
+                {"method": "z_score", "column": "sales_amount", "threshold": 3.0},
+                {"method": "iqr", "column": "units_sold", "multiplier": 1.5}
+            ]
+
+    Returns:
+        A list of dicts, one per check, in the same shape as the
+        individual check functions.
+    """
+    results = []
+    for entry in anomaly_config:
+        method = entry["method"]
+        column = entry["column"]
+
+        if method == "z_score":
+            threshold = entry.get("threshold", 3.0)
+            result = check_z_score_anomaly(df, column, threshold)
+        elif method == "iqr":
+            multiplier = entry.get("multiplier", 1.5)
+            result = check_iqr_anomaly(df, column, multiplier)
+        else:
+            result = {"check": method, "column": column,
+                      "error": f"Unknown method: {method}", "passed": False}
+
+        results.append(result)
+    return results

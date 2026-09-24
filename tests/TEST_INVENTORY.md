@@ -3,7 +3,7 @@
 **Project:** Data Quality Engineering Initiative  
 **Repository:** data-quality-testing  
 **Platform:** Databricks (PySpark, pytest)  
-**Last Updated:** 2025
+**Last Updated:** 2026-09-24
 
 ---
 
@@ -20,7 +20,8 @@
 | 7 | Freshness | test_freshness.py | 7 | ✅ Complete |
 | 8 | Business Rules | test_business_rules.py | 6 | ✅ Complete |
 | 9 | Reconciliation | test_reconciliation.py | 10 | ✅ Complete |
-| | **TOTAL** | | **44** | |
+| 10 | Anomaly Detection | test_anomaly.py | 11 | ✅ Complete |
+| | **TOTAL** | | **55** | |
 
 ---
 
@@ -303,6 +304,58 @@ Tests are **data-agnostic and config-driven** — no hard-coded counts, sums, or
 
 ---
 
+## 10. Anomaly Detection — Test Inventory
+
+**Test File:** test_anomaly.py  
+**Config Source:** config.yaml → anomaly_checks  
+**DQ Functions Tested:** check_z_score_anomaly, check_iqr_anomaly, get_anomaly_rows, check_all_anomalies
+
+### Test Data Files
+
+| File | Location | Purpose | Rows |
+| --- | --- | --- | --- |
+| sales_anomaly_data.csv | tests/test_data/ | Sales data with 3 injected anomalies | 16 |
+| config.yaml | src/config/ | Anomaly check definitions (YAML) | 4 checks |
+
+### Test Cases
+
+| # | Test Name | Description | Category | Test Data | Notes |
+| --- | --- | --- | --- | --- | --- |
+| 1 | test_z_score_detects_high_outlier | Z-score flags extreme high value (sales_amount=5000) | Fail (Violation Detection) | sales_anomaly_data.csv | Verifies anomaly_count > 0 and passed=False |
+| 2 | test_z_score_reports_correct_stats | Z-score correctly reports mean and stddev from data | Correctness | sales_anomaly_data.csv | Independently computes mean/stddev and compares |
+| 3 | test_z_score_detects_units_outlier | Z-score flags extreme units_sold=200 on different column | Fail (Violation Detection) | sales_anomaly_data.csv | Proves method works across different columns |
+| 4 | test_iqr_detects_both_high_and_low_outliers | IQR flags both sales_amount=5000 and sales_amount=2 | Fail (Violation Detection) | sales_anomaly_data.csv | Key advantage: IQR catches low outlier Z-score misses |
+| 5 | test_iqr_reports_correct_bounds | IQR correctly computes Q1, Q3, IQR, and bounds | Correctness | sales_anomaly_data.csv | Independently computes quantiles and compares |
+| 6 | test_iqr_detects_units_outlier | IQR flags extreme units_sold=200 | Fail (Violation Detection) | sales_anomaly_data.csv | Proves IQR works across different columns |
+| 7 | test_get_anomaly_rows_z_score | get_anomaly_rows with z_score returns matching anomaly count | Helper Function | sales_anomaly_data.csv | Cross-validates get vs check function counts |
+| 8 | test_get_anomaly_rows_iqr | get_anomaly_rows with iqr returns matching anomaly count | Helper Function | sales_anomaly_data.csv | Cross-validates get vs check function counts |
+| 9 | test_get_anomaly_rows_invalid_method | get_anomaly_rows raises ValueError for unknown method | Edge Case | sales_anomaly_data.csv | Verifies error handling for bad input |
+| 10 | test_check_all_anomalies_from_config | Batch anomaly detection runs all checks from YAML config | Pass (Batch) | sales_anomaly_data.csv | Verifies result count matches config entry count |
+| 11 | test_check_all_anomalies_detects_failures | Batch anomaly detection detects at least one failure | Fail (Batch) | sales_anomaly_data.csv | Verifies at least one check fails on anomalous data |
+
+### YAML Rule Configuration
+
+| Method | Column | Parameters | Description |
+| --- | --- | --- | --- |
+| z_score | sales_amount | threshold: 2.0 | Flag values > 2 standard deviations from mean |
+| z_score | units_sold | threshold: 2.0 | Flag values > 2 standard deviations from mean |
+| iqr | sales_amount | multiplier: 1.5 | Flag values outside Q1 - 1.5×IQR or Q3 + 1.5×IQR |
+| iqr | units_sold | multiplier: 1.5 | Flag values outside Q1 - 1.5×IQR or Q3 + 1.5×IQR |
+
+### Fixtures Used
+
+| Fixture | Source | Scope | Description |
+| --- | --- | --- | --- |
+| anomaly_test_data | conftest.py | module | Loads sales_anomaly_data.csv |
+| anomaly_config | conftest.py | module | Loads anomaly_checks from config.yaml |
+| spark_session | conftest.py | session | Shared SparkSession |
+
+### Design Principle
+
+Tests are **data-agnostic and config-driven** — no hard-coded counts, means, or thresholds. All expected values are derived from the DataFrames themselves, and all parameters (columns, thresholds, multipliers) come from config.yaml. Tests verify function logic, not specific data values.
+
+---
+
 ## Test Data Directory
 
 All test data files are located in `tests/test_data/`:
@@ -327,6 +380,7 @@ All test data files are located in `tests/test_data/`:
 | reconciliation_source.csv | Reconciliation | Source dataset (5 rows) |
 | reconciliation_target.csv | Reconciliation | Target dataset — identical to source (5 rows) |
 | reconciliation_mismatch_target.csv | Reconciliation | Target with differences (4 rows, missing/extra/mismatched) |
+| sales_anomaly_data.csv | Anomaly Detection | Sales data with 3 injected anomalies (16 rows) |
 
 ---
 
@@ -334,6 +388,6 @@ All test data files are located in `tests/test_data/`:
 
 | File | Location | Purpose |
 | --- | --- | --- |
-| config.yaml | src/config/ | Central configuration (FK definitions, consistency rules, business rules, reconciliation rules, schema expectations, thresholds) |
+| config.yaml | src/config/ | Central configuration (FK definitions, consistency rules, business rules, reconciliation rules, anomaly checks, schema expectations, thresholds) |
 | conftest.py | tests/ | Pytest fixtures (spark_session, test_data, config loaders) |
 | pytest.ini | tests/ | Pytest configuration |
