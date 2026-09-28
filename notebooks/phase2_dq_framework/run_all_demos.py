@@ -33,8 +33,10 @@ def main():
     results = {}
     failed_notebooks = []
     
-    # Get base path (current directory should be notebooks/phase2_dq_framework)
-    base_path = os.getcwd()
+    # Use absolute workspace path so dbutils.notebook.run resolves correctly
+    # regardless of the calling notebook's location (e.g. when run from a
+    # conversation context or a different directory).
+    base_path = "/Repos/maha.b.lakshmi@gmail.com/data-quality-testing/notebooks/phase2_dq_framework"
     
     print(f"\nBase path: {base_path}")
     print(f"\nFound {len(demo_notebooks)} demo notebooks to run\n")
@@ -48,7 +50,7 @@ def main():
             # Use dbutils.notebook.run to execute the notebook
             # Timeout: 300 seconds (5 minutes) per notebook
             result = dbutils.notebook.run(
-                f"./{notebook_name}",
+                f"{base_path}/{notebook_name}",
                 timeout_seconds=300
             )
             

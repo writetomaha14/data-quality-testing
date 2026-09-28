@@ -252,6 +252,30 @@ def check_schema(df, expected_schema):
         "passed": not missing_columns and not extra_columns and not type_mismatches,
     }
 
+
+def check_all_schemas(table_registry, schema_config):
+    """
+    Run check_schema() for every table declared in schema_config.
+
+    Args:
+        table_registry: a dict mapping table names to DataFrames.
+        schema_config: a dict mapping table names to expected schemas,
+            where each expected schema is a list of [column_name, type_name] pairs.
+            e.g. {"employees": [["employee_id", "integer"], ["name", "string"]]}
+
+    Returns:
+        A list of dicts, one per table, in the same shape as check_schema(),
+        with an added 'table' key for identification.
+    """
+    results = []
+    for table_name, expected_schema in schema_config.items():
+        df = table_registry[table_name]
+        expected = [tuple(pair) for pair in expected_schema]
+        result = check_schema(df, expected)
+        result["table"] = table_name
+        results.append(result)
+    return results
+
 def check_freshness(df, timestamp_column, max_age_hours=24):
     """
     Check whether a table's most recent record is recent enough.
@@ -761,3 +785,240 @@ def check_all_anomalies(df, anomaly_config):
 
         results.append(result)
     return results
+
+
+# ==============================================================================
+# Data Quality Score
+# ==============================================================================
+
+def calculate_dq_score(check_results, scoring_config):
+    """
+    Calculate an overall data quality score (0-100) from a list of
+    individual check result dicts.
+
+    Groups results by category using a configurable mapping, computes
+    the pass rate per category, applies category weights, and returns
+    the total score with a letter grade and per-category breakdown.
+
+    Args:
+        check_results: a list of dicts, each with at least 'check' (the
+            check type name) and 'passed' (a boolean). These are the same
+            dicts returned by check_completeness(), check_uniqueness(),
+            check_referential_integrity(), check_schema(), check_freshness(),
+            check_consistency(), check_record_count(), check_sum_reconciliation(),
+            check_row_level_reconciliation(), check_z_score_anomaly(),
+            check_iqr_anomaly(), and their check_all_*() batch variants.
+        scoring_config: a dict with keys:
+            - category_mapping: maps check names to category names
+              (e.g., {"z_score_anomaly": "anomaly_detection"}).
+            - weights: maps category names to weight percentages
+              (e.g., {"completeness": 20, "uniqueness": 15}).
+              Weights should sum to 100 but are normalized if they don't.
+            - grade_thresholds: maps letter grades to minimum scores
+              (e.g., {"A": 90, "B": 80, "C": 70, "D": 60, "F": 0}).
+            - min_passing_score: the minimum total score to pass (default 80).
+
+    Returns:
+        A dict with:
+            - check: "dq_score"
+            - total_score: the weighted score (0-100), rounded to 1 decimal
+            - grade: the letter grade (A, B, C, D, or F)
+            - total_weight_applied: sum of weights for categories that had checks
+            - category_scores: a dict of per-category details:
+                {category: {total_checks, passed_checks, pass_rate, weight,
+                 weighted_score}}
+            - passed: whether the total score meets min_passing_score
+
+    Examples:
+        >>> results = [
+        ...     {"check": "completeness", "passed": True},
+        ...     {"check": "uniqueness", "passed": False},
+        ... ]
+        >>> score = calculate_dq_score(results, scoring_config)
+        >>> score["total_score"]
+        65.0
+        >>> score["grade"]
+        'D'
+    """
+    category_mapping = scoring_config.get("category_mapping", {})
+    weights = scoring_config.get("weights", {})
+    grade_thresholds = scoring_config.get("grade_thresholds", {})
+    min_passing = scoring_config.get("min_passing_score", 80)
+
+    # Group results by category using the mapping
+    categories = {}
+    for result in check_results:
+        check_name = result.get("check", "unknown")
+        category = category_mapping.get(check_name, check_name)
+        if category not in categories:
+            categories[category] = {"total": 0, "passed": 0}
+        categories[category]["total"] += 1
+        if result.get("passed", False):
+            categories[category]["passed"] += 1
+
+    # Calculate per-category scores and weighted total
+    category_scores = {}
+    total_score = 0.0
+    total_weight_used = 0
+
+    for category, counts in categories.items():
+        pass_rate = (counts["passed"] / counts["total"] * 100) if counts["total"] > 0 else 0
+        weight = weights.get(category, 0)
+        weighted_score = pass_rate * (weight / 100)
+
+        category_scores[category] = {
+            "total_checks": counts["total"],
+            "passed_checks": counts["passed"],
+            "pass_rate": round(pass_rate, 1),
+            "weight": weight,
+            "weighted_score": round(weighted_score, 1),
+        }
+        total_score += weighted_score
+        total_weight_used += weight
+
+    total_score = round(total_score, 1)
+
+    # Determine grade (highest threshold met)
+    grade = "F"
+    for g in sorted(grade_thresholds, key=grade_thresholds.get, reverse=True):
+        if total_score >= grade_thresholds[g]:
+            grade = g
+            break
+
+    return {
+        "check": "dq_score",
+        "total_score": total_score,
+        "grade": grade,
+        "total_weight_applied": total_weight_used,
+        "category_scores": category_scores,
+        "passed": total_score >= min_passing,
+    }
+
+
+# ==============================================================================
+# Layer 3: Orchestrator — Single Entry Point
+# ==============================================================================
+
+def run_all_checks(table_registry, config):
+    """
+    Run all applicable data quality checks across all datasets declared
+    in config. This is the Layer 3 orchestrator — the single entry point
+    for automated, config-driven validation.
+
+    It reads the 'datasets' section of config, loops over each dataset,
+    and dispatches only the checks that are declared for that dataset.
+    It also runs cross-table checks (foreign keys) from the global config
+    and calculates an overall DQ score if scoring config is present.
+
+    Args:
+        table_registry: a dict mapping table names to PySpark DataFrames.
+            Every dataset name in config["datasets"] must have a matching key.
+            If reconciliation is declared for a dataset, its target_table
+            must also be present in the registry.
+        config: the full configuration dict (loaded from config.yaml), containing:
+            - "datasets": per-dataset check declarations (required)
+            - "foreign_keys": cross-table FK relationships (optional)
+            - "dq_scoring": scoring weights and thresholds (optional)
+
+    Returns:
+        A list of dicts containing:
+            - All individual check results from every dataset (each with
+              a 'dataset' key identifying which dataset it came from)
+            - Foreign key check results (if foreign_keys config present)
+            - A final DQ score dict (if dq_scoring config present)
+
+    Example:
+        >>> with open("config/config.yaml") as f:
+        ...     config = yaml.safe_load(f)
+        >>> results = run_all_checks(table_registry, config)
+        >>> failed = [r for r in results if not r.get("passed", True)]
+        >>> if failed:
+        ...     print(f"{len(failed)} checks failed")
+    """
+    all_results = []
+    datasets_config = config.get("datasets", {})
+
+    for dataset_name, checks in datasets_config.items():
+        df = table_registry[dataset_name]
+
+        # --- Completeness ---
+        if "completeness" in checks:
+            comp_config = checks["completeness"]
+            max_null_pct = comp_config.get("max_null_pct", 0)
+            for column in comp_config["columns"]:
+                result = check_completeness(df, column, max_null_pct)
+                result["dataset"] = dataset_name
+                all_results.append(result)
+
+        # --- Uniqueness ---
+        if "uniqueness" in checks:
+            uniq_config = checks["uniqueness"]
+            for columns in uniq_config["columns"]:
+                if isinstance(columns, str):
+                    result = check_uniqueness(df, columns)
+                else:
+                    # Composite key — columns is a list of column names
+                    result = check_uniqueness_composite(df, columns)
+                result["dataset"] = dataset_name
+                all_results.append(result)
+
+        # --- Schema Validation ---
+        if "schema" in checks:
+            schema_config = checks["schema"]
+            expected = [tuple(pair) for pair in schema_config["expected"]]
+            result = check_schema(df, expected)
+            result["dataset"] = dataset_name
+            all_results.append(result)
+
+        # --- Freshness ---
+        if "freshness" in checks:
+            fresh_config = checks["freshness"]
+            result = check_freshness(
+                df,
+                fresh_config["timestamp_column"],
+                fresh_config.get("max_age_hours", 24),
+            )
+            result["dataset"] = dataset_name
+            all_results.append(result)
+
+        # --- Consistency Rules ---
+        if "consistency" in checks:
+            results = check_all_consistency(df, checks["consistency"]["rules"])
+            for r in results:
+                r["dataset"] = dataset_name
+                all_results.append(r)
+
+        # --- Business Rules (uses the same consistency check function) ---
+        if "business_rules" in checks:
+            results = check_all_consistency(df, checks["business_rules"]["rules"])
+            for r in results:
+                r["dataset"] = dataset_name
+                all_results.append(r)
+
+        # --- Anomaly Detection ---
+        if "anomalies" in checks:
+            results = check_all_anomalies(df, checks["anomalies"]["checks"])
+            for r in results:
+                r["dataset"] = dataset_name
+                all_results.append(r)
+
+        # --- Reconciliation ---
+        if "reconciliation" in checks:
+            recon_config = checks["reconciliation"]
+            target_df = table_registry[recon_config["target_table"]]
+            results = check_all_reconciliation(df, target_df, recon_config["checks"])
+            for r in results:
+                r["dataset"] = dataset_name
+                all_results.append(r)
+
+    # --- Cross-Table: Foreign Keys (global, not per-dataset) ---
+    if "foreign_keys" in config:
+        fk_results = check_all_foreign_keys(table_registry, config["foreign_keys"])
+        all_results.extend(fk_results)
+
+    # --- DQ Score (if scoring config present) ---
+    if "dq_scoring" in config:
+        score = calculate_dq_score(all_results, config["dq_scoring"])
+        all_results.append(score)
+
+    return all_results

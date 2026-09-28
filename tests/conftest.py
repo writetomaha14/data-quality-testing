@@ -436,3 +436,18 @@ def anomaly_config() -> list:
     logger.info(f"  Loaded {len(anomaly_checks)} anomaly checks from config")
     
     return anomaly_checks
+
+
+@pytest.fixture(scope="module")
+def scoring_config() -> Dict:
+    """Load DQ scoring configuration from YAML."""
+    config_path = CONFIG_DIR / "config.yaml"
+    logger.info(f"Loading scoring configuration from {config_path}")
+    
+    with open(config_path, 'r') as f:
+        config = yaml.safe_load(f)
+    
+    scoring = config.get('dq_scoring', {})
+    logger.info(f"  Loaded scoring config with {len(scoring.get('weights', {}))} category weights")
+    
+    return scoring

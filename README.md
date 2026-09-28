@@ -24,10 +24,10 @@ Repo Structure
 data-quality-testing/
 ├── README.md
 ├── config/
-│   └── config.yaml                    # thresholds, valid values, schemas, rules
+│   └── config.yaml                    # per-dataset check declarations, thresholds, schemas, rules
 ├── src/
 │   └── checks/
-│       └── dq_checks.py               # all reusable check functions, one growing file
+│       └── dq_checks.py               # all check functions + run_all_checks() orchestrator
 ├── tests/
 │   ├── test_completeness.py
 │   ├── test_uniqueness.py
@@ -37,6 +37,7 @@ data-quality-testing/
 │   ├── test_freshness.py
 │   ├── test_consistency.py
 │   ├── test_business_rules.py
+│   ├── test_run_all_checks.py       # orchestrator tests (Layer 3)
 │   └── test_data/                     # CSV fixtures — no inline test data
 ├── notebooks/
 │   ├── phase1_foundations/            # Days 1-30: PySpark fundamentals

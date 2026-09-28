@@ -30,14 +30,16 @@ def main():
     # Resolve test files relative to current working directory (tests directory)
     test_dir = os.getcwd()
     
-    # Portfolio-ready test files (FK + Schema)
+    # All test files in execution order
     # Excludes old test files: test_completeness, test_uniqueness, test_referential_integrity
     candidate_files = [
-        'test_foreign_keys.py',  # 3 FK tests
-        'test_schema_validation.py',  # Schema validation tests
-        'test_business_rules.py',    # Business Rules tests
-        'test_consistency_rules', # Consistency Rules
-        'test_freshness' # Freshness Tests
+        'test_foreign_keys.py',        # Day 34: Foreign Keys
+        'test_schema_validation.py',   # Day 35: Schema Validation
+        'test_freshness.py',           # Day 36: Freshness
+        'test_consistency_rules.py',   # Day 37: Consistency Rules
+        'test_business_rules.py',     # Day 38: Business Rules
+        'test_reconciliation.py',     # Day 39: Reconciliation
+        'test_anomaly.py',             # Day 40: Anomaly Basics
     ]
     
     # Only include files that actually exist

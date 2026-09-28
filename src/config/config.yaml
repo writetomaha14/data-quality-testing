@@ -1,3 +1,69 @@
+# ==============================================================================
+# Per-Dataset Configuration (Layer 3 — Orchestrator reads this section)
+# Each dataset declares which checks apply and with what parameters.
+# Only declared checks run — omit a check type to skip it for that dataset.
+# ==============================================================================
+datasets:
+  orders:
+    completeness:
+      columns: [order_id, customer_id, total, order_date, ship_date]
+      max_null_pct: 5
+    uniqueness:
+      columns: [order_id]
+    consistency:
+      rules:
+        - name: ship_after_order
+          expression: "ship_date >= order_date"
+        - name: total_matches_calculation
+          expression: "ABS(total - (quantity * unit_price)) < 0.01"
+    business_rules:
+      rules:
+        - name: valid_status_enum
+          expression: "status IN ('active', 'shipped', 'pending', 'closed')"
+        - name: discount_within_total
+          expression: "discount <= total"
+    anomalies:
+      checks:
+        - method: z_score
+          column: sales_amount
+          threshold: 2.0
+        - method: iqr
+          column: sales_amount
+          multiplier: 1.5
+    freshness:
+      timestamp_column: created_at
+      max_age_hours: 24
+    reconciliation:
+      target_table: orders_copy
+      checks:
+        - check: record_count
+        - check: sum
+          column: total
+        - check: row_level
+          key_columns: [order_id]
+
+  customers:
+    completeness:
+      columns: [customer_id, email, name]
+      max_null_pct: 0
+    uniqueness:
+      columns: [customer_id]
+
+  employees:
+    completeness:
+      columns: [employee_id, name, manager_id]
+      max_null_pct: 0
+    schema:
+      expected:
+        - [employee_id, integer]
+        - [name, string]
+        - [manager_id, double]
+
+# ==============================================================================
+# Global Configuration (used by Layer 1 and Layer 2 functions directly)
+# Kept for backward compatibility and for cross-table checks that span datasets.
+# ==============================================================================
+
 valid_statuses:
   - Active
   - Inactive
@@ -62,3 +128,42 @@ anomaly_checks:
   - method: iqr
     column: units_sold
     multiplier: 1.5
+
+dq_scoring:
+  # Map check names to categories for grouping
+  category_mapping:
+    completeness: completeness
+    uniqueness: uniqueness
+    uniqueness_composite: uniqueness
+    referential_integrity: referential_integrity
+    referential_integrity_composite: referential_integrity
+    schema_validation: schema_validation
+    freshness: freshness
+    consistency: consistency
+    record_count_reconciliation: reconciliation
+    sum_reconciliation: reconciliation
+    row_level_reconciliation: reconciliation
+    z_score_anomaly: anomaly_detection
+    iqr_anomaly: anomaly_detection
+
+  # Weight per category (should sum to 100)
+  weights:
+    completeness: 20
+    uniqueness: 15
+    referential_integrity: 15
+    schema_validation: 10
+    freshness: 10
+    consistency: 10
+    reconciliation: 10
+    anomaly_detection: 10
+
+  # Grade thresholds
+  grade_thresholds:
+    A: 90
+    B: 80
+    C: 70
+    D: 60
+    F: 0
+
+  # Minimum score to pass
+  min_passing_score: 80
