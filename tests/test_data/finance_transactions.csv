@@ -1,0 +1,6 @@
+transaction_id,account_id,amount,transaction_type,transaction_date
+1001,501,1500.00,credit,2026-01-05
+1002,502,300.00,debit,2026-01-10
+1003,501,750.00,transfer,2026-01-15
+1004,503,2000.00,credit,2026-02-01
+1005,502,500.00,debit,2026-02-10
